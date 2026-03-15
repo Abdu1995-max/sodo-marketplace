@@ -148,6 +148,7 @@ export default function App() {
         if (Array.isArray(data)) {
           // Convert 0/1 to boolean for isFeatured
           const formattedData = data.map(p => ({
+            id: p._id,
             ...p,
             isFeatured: !!p.isFeatured
           }));

@@ -362,6 +362,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, ".")));
+    app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
     app.get("*", (_req, res) => {
       res.sendFile(path.join(__dirname, "index.html"));
     });
