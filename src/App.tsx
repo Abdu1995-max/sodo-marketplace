@@ -3,7 +3,7 @@ import { Send, Package, Plus, Settings, Trash2, ArrowLeft, LogOut, Search, X as 
 import { motion, AnimatePresence } from 'motion/react';
 
 interface Product {
-  id: number;
+  id: string;
   name: string;
   price: number;
   image: string;
@@ -107,7 +107,7 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [productToDelete, setProductToDelete] = useState<number | null>(null);
+  const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [lowDataMode, setLowDataMode] = useState(false);
   const [buyerInfo, setBuyerInfo] = useState({
     name: '',
@@ -233,7 +233,7 @@ export default function App() {
     }
   };
 
-  const handleDeleteProduct = (id: number) => {
+  const handleDeleteProduct = (id: string) => {
     setProductToDelete(id);
   };
 
@@ -310,7 +310,7 @@ export default function App() {
     });
   };
 
-  const removeFromCart = (productId: number) => {
+  const removeFromCart = (productId: string) => {
     setCart(prevCart => prevCart.filter(item => item.id !== productId));
   };
 
