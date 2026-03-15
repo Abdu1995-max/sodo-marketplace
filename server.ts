@@ -1,355 +1,142 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import pg from "pg";
-import Database from "better-sqlite3";
+import mongoose from "mongoose";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+
+import { Product } from "./src/models/Product.js";
+import { Order } from "./src/models/Order.js";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const usePostgres = Boolean(process.env.DATABASE_URL);
+const MONGODB_URI = process.env.MONGODB_URI;
 
-let pool: pg.Pool | null = null;
-let db: Database.Database | null = null;
+const seedProducts = [
+  {
+    name: "Premium Ethiopian Coffee Beans (Yirgacheffe)",
+    price: 12.99,
+    description:
+      "Single-origin Yirgacheffe coffee beans with bright floral notes and citrus acidity. Sourced directly from local farmers in the Gedeo Zone.",
+    image: "https://picsum.photos/seed/coffee/600/600",
+    shopName: "Sodo Highland Coffees",
+    category: "Food & Beverage",
+    moq: "5 kg",
+    location: "Sodo, SNNPR, Ethiopia",
+    isFeatured: true,
+  },
+  {
+    name: "Handwoven Ethiopian Habesha Kemis Dress",
+    price: 45.0,
+    description:
+      "Traditional Habesha Kemis dress, hand-woven with 100% cotton. Features classic white fabric with intricate border embroidery. Available in all sizes.",
+    image: "https://picsum.photos/seed/dress/600/600",
+    shopName: "Arba Minch Textiles",
+    category: "Apparel",
+    moq: "3 pieces",
+    location: "Arba Minch, Ethiopia",
+    isFeatured: true,
+  },
+  {
+    name: "Industrial Water Pump (5HP)",
+    price: 320.0,
+    description:
+      "Heavy-duty 5HP centrifugal water pump suitable for irrigation. Stainless steel impeller, flow rate 500L/min. Perfect for agricultural and industrial use.",
+    image: "https://picsum.photos/seed/pump/600/600",
+    shopName: "Wolaita Machinery Depot",
+    category: "Industrial",
+    moq: "1 unit",
+    location: "Sodo, Ethiopia",
+    isFeatured: true,
+  },
+  {
+    name: "Samsung Galaxy A55 5G Smartphone",
+    price: 380.0,
+    description:
+      "Samsung Galaxy A55 5G, 256GB storage, 8GB RAM. Factory unlocked, 50MP triple camera, 5000mAh battery. Original import with full warranty.",
+    image: "https://picsum.photos/seed/phone/600/600",
+    shopName: "Mekonnen Electronics",
+    category: "Electronics",
+    moq: "1 piece",
+    location: "Sodo Market, Ethiopia",
+    isFeatured: true,
+  },
+  {
+    name: "Fresh Avocado Bulk Export (Grade A)",
+    price: 0.8,
+    description:
+      "Grade A Hass avocados from local farms. Perfect for export and wholesale. Firm, consistent sizing, harvested weekly. Minimum order applies.",
+    image: "https://picsum.photos/seed/avocado/600/600",
+    shopName: "Wolaita Fresh Farms",
+    category: "Food & Beverage",
+    moq: "200 kg / box",
+    location: "Sodo, Ethiopia",
+    isFeatured: false,
+  },
+  {
+    name: "Stainless Steel Cookware Set (12 Pieces)",
+    price: 95.0,
+    description:
+      "Professional grade 12-piece stainless steel cookware set. Includes pots, pans, lids. Suitable for all stove types including induction. Dishwasher safe.",
+    image: "https://picsum.photos/seed/cookware/600/600",
+    shopName: "Desta Home Supplies",
+    category: "Home & Garden",
+    moq: "2 sets",
+    location: "Sodo, Ethiopia",
+    isFeatured: false,
+  },
+  {
+    name: "Solar Panel 200W Monocrystalline",
+    price: 110.0,
+    description:
+      "High efficiency 200W monocrystalline solar panel with 21% conversion efficiency. Includes mounting hardware. 25-year power output warranty. Ideal for off-grid systems.",
+    image: "https://picsum.photos/seed/solar/600/600",
+    shopName: "Green Energy Sodo",
+    category: "Electronics",
+    moq: "4 panels",
+    location: "Sodo, Ethiopia",
+    isFeatured: false,
+  },
+  {
+    name: "Natural Shea Butter (Unrefined, 1kg)",
+    price: 8.5,
+    description:
+      "100% pure unrefined shea butter sourced from West African shea trees. Rich in vitamins A and E. Ideal for skin and hair care product manufacturing.",
+    image: "https://picsum.photos/seed/shea/600/600",
+    shopName: "Sodo Natural Beauty Co.",
+    category: "Beauty",
+    moq: "20 kg",
+    location: "Sodo, Ethiopia",
+    isFeatured: false,
+  },
+];
 
-if (usePostgres) {
-  const { Pool } = pg;
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
-  });
-} else {
-  const dbPath = path.join(__dirname, "marketplace.db");
-  db = new Database(dbPath);
-  db.pragma("foreign_keys = ON");
-}
-
-// Initialize database (Postgres if DATABASE_URL is set, otherwise use SQLite)
 async function initDb() {
-  if (usePostgres) {
-    const client = await pool!.connect();
-    try {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS products (
-          id SERIAL PRIMARY KEY,
-          name TEXT NOT NULL,
-          price REAL NOT NULL,
-          description TEXT,
-          image TEXT,
-          shopName TEXT,
-          category TEXT DEFAULT 'General',
-          moq TEXT DEFAULT '1 piece',
-          location TEXT DEFAULT 'Sodo, Ethiopia',
-          isFeatured INTEGER DEFAULT 0
-        );
+  if (!MONGODB_URI) {
+    throw new Error("MONGODB_URI is not set (expected in .env)");
+  }
 
-        CREATE TABLE IF NOT EXISTS orders (
-          id SERIAL PRIMARY KEY,
-          total_amount REAL NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+  await mongoose.connect(MONGODB_URI, {
+    // Additional mongoose options can go here
+    autoIndex: true,
+  });
 
-        CREATE TABLE IF NOT EXISTS order_items (
-          id SERIAL PRIMARY KEY,
-          order_id INTEGER NOT NULL,
-          product_id INTEGER NOT NULL,
-          quantity INTEGER NOT NULL,
-          price_at_time REAL NOT NULL,
-          category TEXT,
-          FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-          FOREIGN KEY (product_id) REFERENCES products(id)
-        );
-      `);
-      console.log("✅ Database tables initialized.");
-
-      // Seed database with sample products if empty
-      const { rows } = await client.query("SELECT COUNT(*) as count FROM products");
-      const productCount = parseInt(rows[0].count);
-
-      if (productCount === 0) {
-        console.log("Seeding database with sample products...");
-        const seedProducts = [
-          {
-            name: "Premium Ethiopian Coffee Beans (Yirgacheffe)",
-            price: 12.99,
-            description: "Single-origin Yirgacheffe coffee beans with bright floral notes and citrus acidity. Sourced directly from local farmers in the Gedeo Zone.",
-            image: "https://picsum.photos/seed/coffee/600/600",
-            shopName: "Sodo Highland Coffees",
-            category: "Food & Beverage",
-            moq: "5 kg",
-            location: "Sodo, SNNPR, Ethiopia",
-            isFeatured: 1,
-          },
-          {
-            name: "Handwoven Ethiopian Habesha Kemis Dress",
-            price: 45.0,
-            description: "Traditional Habesha Kemis dress, hand-woven with 100% cotton. Features classic white fabric with intricate border embroidery. Available in all sizes.",
-            image: "https://picsum.photos/seed/dress/600/600",
-            shopName: "Arba Minch Textiles",
-            category: "Apparel",
-            moq: "3 pieces",
-            location: "Arba Minch, Ethiopia",
-            isFeatured: 1,
-          },
-          {
-            name: "Industrial Water Pump (5HP)",
-            price: 320.0,
-            description: "Heavy-duty 5HP centrifugal water pump suitable for irrigation. Stainless steel impeller, flow rate 500L/min. Perfect for agricultural and industrial use.",
-            image: "https://picsum.photos/seed/pump/600/600",
-            shopName: "Wolaita Machinery Depot",
-            category: "Industrial",
-            moq: "1 unit",
-            location: "Sodo, Ethiopia",
-            isFeatured: 1,
-          },
-          {
-            name: "Samsung Galaxy A55 5G Smartphone",
-            price: 380.0,
-            description: "Samsung Galaxy A55 5G, 256GB storage, 8GB RAM. Factory unlocked, 50MP triple camera, 5000mAh battery. Original import with full warranty.",
-            image: "https://picsum.photos/seed/phone/600/600",
-            shopName: "Mekonnen Electronics",
-            category: "Electronics",
-            moq: "1 piece",
-            location: "Sodo Market, Ethiopia",
-            isFeatured: 1,
-          },
-          {
-            name: "Fresh Avocado Bulk Export (Grade A)",
-            price: 0.8,
-            description: "Grade A Hass avocados from local farms. Perfect for export and wholesale. Firm, consistent sizing, harvested weekly. Minimum order applies.",
-            image: "https://picsum.photos/seed/avocado/600/600",
-            shopName: "Wolaita Fresh Farms",
-            category: "Food & Beverage",
-            moq: "200 kg / box",
-            location: "Sodo, Ethiopia",
-            isFeatured: 0,
-          },
-          {
-            name: "Stainless Steel Cookware Set (12 Pieces)",
-            price: 95.0,
-            description: "Professional grade 12-piece stainless steel cookware set. Includes pots, pans, lids. Suitable for all stove types including induction. Dishwasher safe.",
-            image: "https://picsum.photos/seed/cookware/600/600",
-            shopName: "Desta Home Supplies",
-            category: "Home & Garden",
-            moq: "2 sets",
-            location: "Sodo, Ethiopia",
-            isFeatured: 0,
-          },
-          {
-            name: "Solar Panel 200W Monocrystalline",
-            price: 110.0,
-            description: "High efficiency 200W monocrystalline solar panel with 21% conversion efficiency. Includes mounting hardware. 25-year power output warranty. Ideal for off-grid systems.",
-            image: "https://picsum.photos/seed/solar/600/600",
-            shopName: "Green Energy Sodo",
-            category: "Electronics",
-            moq: "4 panels",
-            location: "Sodo, Ethiopia",
-            isFeatured: 0,
-          },
-          {
-            name: "Natural Shea Butter (Unrefined, 1kg)",
-            price: 8.5,
-            description: "100% pure unrefined shea butter sourced from West African shea trees. Rich in vitamins A and E. Ideal for skin and hair care product manufacturing.",
-            image: "https://picsum.photos/seed/shea/600/600",
-            shopName: "Sodo Natural Beauty Co.",
-            category: "Beauty",
-            moq: "20 kg",
-            location: "Sodo, Ethiopia",
-            isFeatured: 0,
-          },
-        ];
-
-        for (const p of seedProducts) {
-          await client.query(
-            "INSERT INTO products (name, price, description, image, shopName, category, moq, location, isFeatured) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            [p.name, p.price, p.description, p.image, p.shopName, p.category, p.moq, p.location, p.isFeatured]
-          );
-        }
-        console.log(`✅ Seeded ${seedProducts.length} products into the database.`);
-      }
-    } catch (err) {
-      console.error("❌ Error initializing/seeding database:", err);
-    } finally {
-      client.release();
-    }
-  } else {
-    db!.exec(`
-      CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        price REAL NOT NULL,
-        description TEXT,
-        image TEXT,
-        shopName TEXT,
-        category TEXT DEFAULT 'General',
-        moq TEXT DEFAULT '1 piece',
-        location TEXT DEFAULT 'Sodo, Ethiopia',
-        isFeatured INTEGER DEFAULT 0
-      );
-
-      CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        total_amount REAL NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS order_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        order_id INTEGER NOT NULL,
-        product_id INTEGER NOT NULL,
-        quantity INTEGER NOT NULL,
-        price_at_time REAL NOT NULL,
-        category TEXT,
-        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-        FOREIGN KEY (product_id) REFERENCES products(id)
-      );
-    `);
-
-    console.log("✅ Database tables initialized (SQLite).");
-
-    const row = db!.prepare("SELECT COUNT(*) as count FROM products").get();
-    const productCount = row?.count || 0;
-
-    if (productCount === 0) {
-      console.log("Seeding database with sample products...");
-      const seedProducts = [
-        {
-          name: "Premium Ethiopian Coffee Beans (Yirgacheffe)",
-          price: 12.99,
-          description: "Single-origin Yirgacheffe coffee beans with bright floral notes and citrus acidity. Sourced directly from local farmers in the Gedeo Zone.",
-          image: "https://picsum.photos/seed/coffee/600/600",
-          shopName: "Sodo Highland Coffees",
-          category: "Food & Beverage",
-          moq: "5 kg",
-          location: "Sodo, SNNPR, Ethiopia",
-          isFeatured: 1,
-        },
-        {
-          name: "Handwoven Ethiopian Habesha Kemis Dress",
-          price: 45.0,
-          description: "Traditional Habesha Kemis dress, hand-woven with 100% cotton. Features classic white fabric with intricate border embroidery. Available in all sizes.",
-          image: "https://picsum.photos/seed/dress/600/600",
-          shopName: "Arba Minch Textiles",
-          category: "Apparel",
-          moq: "3 pieces",
-          location: "Arba Minch, Ethiopia",
-          isFeatured: 1,
-        },
-        {
-          name: "Industrial Water Pump (5HP)",
-          price: 320.0,
-          description: "Heavy-duty 5HP centrifugal water pump suitable for irrigation. Stainless steel impeller, flow rate 500L/min. Perfect for agricultural and industrial use.",
-          image: "https://picsum.photos/seed/pump/600/600",
-          shopName: "Wolaita Machinery Depot",
-          category: "Industrial",
-          moq: "1 unit",
-          location: "Sodo, Ethiopia",
-          isFeatured: 1,
-        },
-        {
-          name: "Samsung Galaxy A55 5G Smartphone",
-          price: 380.0,
-          description: "Samsung Galaxy A55 5G, 256GB storage, 8GB RAM. Factory unlocked, 50MP triple camera, 5000mAh battery. Original import with full warranty.",
-          image: "https://picsum.photos/seed/phone/600/600",
-          shopName: "Mekonnen Electronics",
-          category: "Electronics",
-          moq: "1 piece",
-          location: "Sodo Market, Ethiopia",
-          isFeatured: 1,
-        },
-        {
-          name: "Fresh Avocado Bulk Export (Grade A)",
-          price: 0.8,
-          description: "Grade A Hass avocados from local farms. Perfect for export and wholesale. Firm, consistent sizing, harvested weekly. Minimum order applies.",
-          image: "https://picsum.photos/seed/avocado/600/600",
-          shopName: "Wolaita Fresh Farms",
-          category: "Food & Beverage",
-          moq: "200 kg / box",
-          location: "Sodo, Ethiopia",
-          isFeatured: 0,
-        },
-        {
-          name: "Stainless Steel Cookware Set (12 Pieces)",
-          price: 95.0,
-          description: "Professional grade 12-piece stainless steel cookware set. Includes pots, pans, lids. Suitable for all stove types including induction. Dishwasher safe.",
-          image: "https://picsum.photos/seed/cookware/600/600",
-          shopName: "Desta Home Supplies",
-          category: "Home & Garden",
-          moq: "2 sets",
-          location: "Sodo, Ethiopia",
-          isFeatured: 0,
-        },
-        {
-          name: "Solar Panel 200W Monocrystalline",
-          price: 110.0,
-          description: "High efficiency 200W monocrystalline solar panel with 21% conversion efficiency. Includes mounting hardware. 25-year power output warranty. Ideal for off-grid systems.",
-          image: "https://picsum.photos/seed/solar/600/600",
-          shopName: "Green Energy Sodo",
-          category: "Electronics",
-          moq: "4 panels",
-          location: "Sodo, Ethiopia",
-          isFeatured: 0,
-        },
-        {
-          name: "Natural Shea Butter (Unrefined, 1kg)",
-          price: 8.5,
-          description: "100% pure unrefined shea butter sourced from West African shea trees. Rich in vitamins A and E. Ideal for skin and hair care product manufacturing.",
-          image: "https://picsum.photos/seed/shea/600/600",
-          shopName: "Sodo Natural Beauty Co.",
-          category: "Beauty",
-          moq: "20 kg",
-          location: "Sodo, Ethiopia",
-          isFeatured: 0,
-        },
-      ];
-
-      const insert = db!.prepare(
-        "INSERT INTO products (name, price, description, image, shopName, category, moq, location, isFeatured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      );
-      const insertTx = db!.transaction((items: any[]) => {
-        for (const p of items) {
-          insert.run(p.name, p.price, p.description, p.image, p.shopName, p.category, p.moq, p.location, p.isFeatured);
-        }
-      });
-      insertTx(seedProducts);
-
-      console.log(`✅ Seeded ${seedProducts.length} products into the database.`);
-    }
+  const productCount = await Product.countDocuments();
+  if (productCount === 0) {
+    console.log("Seeding database with sample products...");
+    await Product.insertMany(seedProducts);
+    console.log(`✅ Seeded ${seedProducts.length} products into MongoDB.`);
   }
 }
-
-initDb();
-
-const queryAll = async (sql: string, params: any[] = []) => {
-  if (usePostgres) {
-    const res = await pool!.query(sql, params);
-    return res.rows;
-  }
-  return db!.prepare(sql).all(params);
-};
-
-const queryOne = async (sql: string, params: any[] = []) => {
-  if (usePostgres) {
-    const res = await pool!.query(sql, params);
-    return res.rows[0];
-  }
-  return db!.prepare(sql).get(params);
-};
-
-const runQuery = async (sql: string, params: any[] = []) => {
-  if (usePostgres) {
-    return await pool!.query(sql, params);
-  }
-  return db!.prepare(sql).run(params);
-};
 
 const startTime = Date.now();
 
 async function startServer() {
+  await initDb();
+
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
@@ -358,14 +145,15 @@ async function startServer() {
   // ── Health Check ──────────────────────────────────────────────────────────
   app.get("/api/health", async (_req, res) => {
     try {
-      const productRow = await queryOne("SELECT COUNT(*) as count FROM products");
-      const orderRow = await queryOne("SELECT COUNT(*) as count FROM orders");
+      const products = await Product.countDocuments();
+      const orders = await Order.countDocuments();
+
       res.json({
         status: "ok",
-        db: usePostgres ? "postgres" : "sqlite",
+        db: "mongodb",
         uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
-        products: Number(productRow?.count ?? 0),
-        orders: Number(orderRow?.count ?? 0),
+        products,
+        orders,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -376,7 +164,7 @@ async function startServer() {
   // ── Products ──────────────────────────────────────────────────────────────
   app.get("/api/products", async (_req, res) => {
     try {
-      const products = await queryAll("SELECT * FROM products ORDER BY isFeatured DESC, id DESC");
+      const products = await Product.find().sort({ isFeatured: -1, createdAt: -1 }).lean();
       res.json(products);
     } catch (error) {
       console.error("Error fetching products:", error);
@@ -391,60 +179,28 @@ async function startServer() {
       if (!name || typeof name !== "string" || name.trim() === "") {
         return res.status(400).json({ error: "Product name is required" });
       }
+
       if (price === undefined || price === null || isNaN(Number(price)) || Number(price) < 0) {
         return res.status(400).json({ error: "A valid positive price is required" });
       }
+
       if (!image || typeof image !== "string" || image.trim() === "") {
         return res.status(400).json({ error: "Product image URL is required" });
       }
 
-      let insertedId: number;
-      if (usePostgres) {
-        const result: any = await runQuery(
-          "INSERT INTO products (name, price, description, image, shopName, category, moq, location, isFeatured) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
-          [
-            name.trim(),
-            Number(price),
-            description || "",
-            image.trim(),
-            shopName || "Unknown Shop",
-            category || "General",
-            moq || "1 piece",
-            location || "Sodo, Ethiopia",
-            isFeatured ? 1 : 0,
-          ]
-        );
-        insertedId = result.rows[0].id;
-      } else {
-        const result: any = await runQuery(
-          "INSERT INTO products (name, price, description, image, shopName, category, moq, location, isFeatured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [
-            name.trim(),
-            Number(price),
-            description || "",
-            image.trim(),
-            shopName || "Unknown Shop",
-            category || "General",
-            moq || "1 piece",
-            location || "Sodo, Ethiopia",
-            isFeatured ? 1 : 0,
-          ]
-        );
-        insertedId = result.lastInsertRowid;
-      }
-
-      res.status(201).json({
-        id: insertedId,
+      const product = await Product.create({
         name: name.trim(),
         price: Number(price),
-        description,
+        description: description || "",
         image: image.trim(),
         shopName: shopName || "Unknown Shop",
         category: category || "General",
         moq: moq || "1 piece",
         location: location || "Sodo, Ethiopia",
-        isFeatured: !!isFeatured,
+        isFeatured: Boolean(isFeatured),
       });
+
+      res.status(201).json(product);
     } catch (error) {
       console.error("Error adding product:", error);
       res.status(500).json({ error: "Failed to add product" });
@@ -455,16 +211,17 @@ async function startServer() {
     try {
       const { id } = req.params;
       const { isFeatured } = req.body;
-      const result: any = await runQuery(
-        usePostgres
-          ? "UPDATE products SET isFeatured = $1 WHERE id = $2"
-          : "UPDATE products SET isFeatured = ? WHERE id = ?",
-        [isFeatured ? 1 : 0, id]
+
+      const updated = await Product.findByIdAndUpdate(
+        id,
+        { isFeatured: Boolean(isFeatured) },
+        { new: true }
       );
-      const changes = usePostgres ? result.rowCount : result.changes;
-      if (!changes) {
+
+      if (!updated) {
         return res.status(404).json({ error: "Product not found" });
       }
+
       res.json({ message: "Product featured status updated" });
     } catch (error) {
       console.error("Error updating featured status:", error);
@@ -476,33 +233,35 @@ async function startServer() {
     try {
       const { id } = req.params;
       const { name, price, description, image, shopName, category, moq, location, isFeatured } = req.body;
+
       if (!name || typeof name !== "string" || name.trim() === "") {
         return res.status(400).json({ error: "Product name is required" });
       }
+
       if (price === undefined || isNaN(Number(price)) || Number(price) < 0) {
         return res.status(400).json({ error: "A valid positive price is required" });
       }
-      const result: any = await runQuery(
-        usePostgres
-          ? "UPDATE products SET name=$1, price=$2, description=$3, image=$4, shopName=$5, category=$6, moq=$7, location=$8, isFeatured=$9 WHERE id=$10"
-          : "UPDATE products SET name=?, price=?, description=?, image=?, shopName=?, category=?, moq=?, location=?, isFeatured=? WHERE id=?",
-        [
-          name.trim(),
-          Number(price),
-          description || "",
-          image || "",
-          shopName || "Unknown Shop",
-          category || "General",
-          moq || "1 piece",
-          location || "Sodo, Ethiopia",
-          isFeatured ? 1 : 0,
-          id,
-        ]
+
+      const updated = await Product.findByIdAndUpdate(
+        id,
+        {
+          name: name.trim(),
+          price: Number(price),
+          description: description || "",
+          image: image || "",
+          shopName: shopName || "Unknown Shop",
+          category: category || "General",
+          moq: moq || "1 piece",
+          location: location || "Sodo, Ethiopia",
+          isFeatured: Boolean(isFeatured),
+        },
+        { new: true }
       );
-      const changes = usePostgres ? result.rowCount : result.changes;
-      if (!changes) {
+
+      if (!updated) {
         return res.status(404).json({ error: "Product not found" });
       }
+
       res.json({ message: "Product updated successfully" });
     } catch (error) {
       console.error("Error updating product:", error);
@@ -513,12 +272,8 @@ async function startServer() {
   app.delete("/api/admin/delete/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const result: any = await runQuery(
-        usePostgres ? "DELETE FROM products WHERE id = $1" : "DELETE FROM products WHERE id = ?",
-        [id]
-      );
-      const changes = usePostgres ? result.rowCount : result.changes;
-      if (!changes) {
+      const deleted = await Product.findByIdAndDelete(id);
+      if (!deleted) {
         return res.status(404).json({ error: "Product not found" });
       }
       res.json({ message: "Product deleted successfully" });
@@ -536,76 +291,57 @@ async function startServer() {
       return res.status(400).json({ error: "Order must contain at least one item" });
     }
 
-    if (usePostgres) {
-      const client = await pool!.connect();
-      try {
-        await client.query("BEGIN");
-        const orderResult = await client.query("INSERT INTO orders (total_amount) VALUES ($1) RETURNING id", [totalAmount]);
-        const orderId = orderResult.rows[0].id;
+    try {
+      const order = await Order.create({
+        totalAmount: Number(totalAmount) || 0,
+        items: items.map((item: any) => ({
+          productId: item.id,
+          quantity: Number(item.quantity) || 0,
+          priceAtTime: Number(item.price) || 0,
+          category: item.category || "General",
+        })),
+      });
 
-        for (const item of items) {
-          await client.query(
-            "INSERT INTO order_items (order_id, product_id, quantity, price_at_time, category) VALUES ($1, $2, $3, $4, $5)",
-            [orderId, item.id, item.quantity, item.price, item.category || "General"]
-          );
-        }
-        await client.query("COMMIT");
-        res.status(201).json({ id: orderId, message: "Order placed successfully" });
-      } catch (error) {
-        await client.query("ROLLBACK");
-        console.error("Error placing order:", error);
-        res.status(500).json({ error: "Failed to place order" });
-      } finally {
-        client.release();
-      }
-    } else {
-      try {
-        const insertOrder = db!.prepare("INSERT INTO orders (total_amount) VALUES (?)");
-        const insertItem = db!.prepare(
-          "INSERT INTO order_items (order_id, product_id, quantity, price_at_time, category) VALUES (?, ?, ?, ?, ?)"
-        );
-
-        const tx = db!.transaction((items: any[]) => {
-          const orderRes = insertOrder.run(totalAmount);
-          const orderId = orderRes.lastInsertRowid;
-
-          for (const item of items) {
-            insertItem.run(orderId, item.id, item.quantity, item.price, item.category || "General");
-          }
-
-          return orderId;
-        });
-
-        const orderId = tx(items);
-        res.status(201).json({ id: orderId, message: "Order placed successfully" });
-      } catch (error) {
-        console.error("Error placing order:", error);
-        res.status(500).json({ error: "Failed to place order" });
-      }
+      res.status(201).json({ id: order._id, message: "Order placed successfully" });
+    } catch (error) {
+      console.error("Error placing order:", error);
+      res.status(500).json({ error: "Failed to place order" });
     }
   });
 
   // ── Admin Stats ───────────────────────────────────────────────────────────
   app.get("/api/admin/stats", async (_req, res) => {
     try {
-      const totalOrders = await queryOne("SELECT COUNT(*) as count FROM orders");
-      const avgOrderValue = await queryOne("SELECT AVG(total_amount) as avg FROM orders");
-      const topCategories = await queryAll(`
-        SELECT category, SUM(quantity) as total_sold
-        FROM order_items
-        GROUP BY category
-        ORDER BY total_sold DESC
-        LIMIT 5
-      `);
-      const totalRevenue = await queryOne("SELECT SUM(total_amount) as total FROM orders");
-      const totalProducts = await queryOne("SELECT COUNT(*) as count FROM products");
+      const totalOrders = await Order.countDocuments();
+      const totalProducts = await Product.countDocuments();
+
+      const [avgOrderValue] = await Order.aggregate([
+        { $group: { _id: null, avg: { $avg: "$totalAmount" } } },
+      ]);
+
+      const [totalRevenue] = await Order.aggregate([
+        { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+      ]);
+
+      const topCategories = await Order.aggregate([
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: "$items.category",
+            total_sold: { $sum: "$items.quantity" },
+          },
+        },
+        { $sort: { total_sold: -1 } },
+        { $limit: 5 },
+        { $project: { category: "$_id", total_sold: 1, _id: 0 } },
+      ]);
 
       res.json({
-        totalOrders: Number(totalOrders?.count ?? 0),
+        totalOrders,
         avgOrderValue: Number(avgOrderValue?.avg ?? 0),
-        topCategories: topCategories || [],
+        topCategories,
         totalRevenue: Number(totalRevenue?.total ?? 0),
-        totalProducts: Number(totalProducts?.count ?? 0),
+        totalProducts,
       });
     } catch (error) {
       console.error("Error fetching stats:", error);
@@ -629,11 +365,11 @@ async function startServer() {
 
   // ── Global Error Handler ──────────────────────────────────────────────────
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    if (err.type === 'entity.parse.failed') {
-      return res.status(400).json({ error: 'Invalid JSON in request body' });
+    if (err.type === "entity.parse.failed") {
+      return res.status(400).json({ error: "Invalid JSON in request body" });
     }
-    console.error('Unhandled server error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error("Unhandled server error:", err);
+    res.status(500).json({ error: "Internal server error" });
   });
 
   app.listen(PORT, "0.0.0.0", () => {
@@ -642,4 +378,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});
