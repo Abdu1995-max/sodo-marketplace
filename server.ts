@@ -114,6 +114,15 @@ const seedProducts = [
   },
 ];
 
+async function seedProductsIfEmpty() {
+  const productCount = await Product.countDocuments();
+  if (productCount === 0) {
+    console.log("Seeding database with sample products...");
+    await Product.insertMany(seedProducts);
+    console.log(`✅ Seeded ${seedProducts.length} products into MongoDB.`);
+  }
+}
+
 async function initDb() {
   if (!MONGODB_URI) {
     throw new Error("MONGODB_URI is not set (expected in .env)");
@@ -124,12 +133,7 @@ async function initDb() {
     autoIndex: true,
   });
 
-  const productCount = await Product.countDocuments();
-  if (productCount === 0) {
-    console.log("Seeding database with sample products...");
-    await Product.insertMany(seedProducts);
-    console.log(`✅ Seeded ${seedProducts.length} products into MongoDB.`);
-  }
+  await seedProductsIfEmpty();
 }
 
 const startTime = Date.now();
